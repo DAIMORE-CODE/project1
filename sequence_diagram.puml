@@ -1,0 +1,64 @@
+@startuml sequence_create_assign_task
+' ============================================================
+' Team Task Tracker — Sequence Diagram (PlantUML)
+' Процесс: «Менеджер создаёт задачу и назначает её Исполнителю»
+' Эквивалент Mermaid-диаграммы из analysis_spec.md (раздел 3)
+' ============================================================
+
+title Team Task Tracker: создание задачи и назначение Исполнителю
+
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor "Менеджер" as Manager
+participant "Веб-интерфейс\n(SPA)" as UI
+participant "REST API\n(Task Service)" as API
+participant "Middleware\n(JWT + RBAC)" as Auth
+database "База данных" as DB
+participant "Notification\nService" as Notify
+actor "Исполнитель" as Executor
+
+Manager -> UI : Заполняет форму:\nпроект, название, приоритет,\nдедлайн, исполнитель
+
+UI -> API : POST /api/tasks\n(Bearer JWT, роль MANAGER)
+activate API
+
+API -> Auth : Валидация токена\nи прав на создание
+activate Auth
+Auth --> API : OK (роль MANAGER подтверждена)
+deactivate Auth
+
+API -> API : Валидация payload\n(обязательные поля,\ndue_date > today)
+
+API -> DB : INSERT INTO task\n(status='TODO', executor_id=NULL)
+activate DB
+DB --> API : task.id = 1042
+
+API -> DB : UPDATE task\nSET executor_id = :executorId\nWHERE id = 1042
+DB --> API : 1 row updated
+deactivate DB
+
+API ->> Notify : Публикация события\ntask.assigned
+activate Notify
+Notify -->> Executor : E-mail / push:\n«Вам назначена задача #1042»
+deactivate Notify
+
+API --> UI : 201 Created + тело задачи\n(Location: /api/tasks/1042)
+deactivate API
+
+UI --> Manager : Уведомление\n«Задача создана и назначена»
+
+alt Ошибка валидации payload
+    API --> UI : 400 Bad Request\n(список ошибок полей)
+    UI --> Manager : Подсветка ошибок в форме
+else Нет прав роли MANAGER
+    API --> UI : 403 Forbidden
+    UI --> Manager : Сообщение об отказе в доступе
+end
+
+note over Manager, Executor
+  Жизненный цикл созданной задачи:
+  TODO -> IN_PROGRESS -> REVIEW -> DONE / CANCELED
+end note
+
+@enduml
